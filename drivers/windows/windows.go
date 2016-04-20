@@ -48,6 +48,7 @@ type endpointConfiguration struct {
 type hnsEndpoint struct {
 	id          string
 	profileID   string
+	sbox        string
 	macAddress  net.HardwareAddr
 	config      *endpointConfiguration // User specified parameters
 	portMapping []types.PortBinding    // Operation port bindings
@@ -149,8 +150,11 @@ func (c *networkConfiguration) processIPAM(id string, ipamV4Data, ipamV6Data []d
 	return nil
 }
 
+func (d *driver) EventNotify(etype driverapi.EventType, nid, tableName, key string, value []byte) {
+}
+
 // Create a new network
-func (d *driver) CreateNetwork(id string, option map[string]interface{}, ipV4Data, ipV6Data []driverapi.IPAMData) error {
+func (d *driver) CreateNetwork(id string, option map[string]interface{}, nInfo driverapi.NetworkInfo, ipV4Data, ipV6Data []driverapi.IPAMData) error {
 	if _, err := d.getNetwork(id); err == nil {
 		return types.ForbiddenErrorf("network %s exists", id)
 	}
@@ -523,11 +527,17 @@ func (d *driver) Join(nid, eid string, sboxKey string, jinfo driverapi.JoinInfo,
 	}
 
 	// Ensure that the endpoint exists
-	_, err = network.getEndpoint(eid)
+	ep, err = network.getEndpoint(eid)
 	if err != nil {
 		return err
 	}
 
+	err = hcsshim.AttachComputeSystemEndpoint(sboxKey, ep.profileID)
+	if err != nil {
+		return err
+	}
+
+	ep.sbox = sboxKey
 	// This is just a stub for now
 
 	jinfo.DisableGatewayService()
@@ -542,7 +552,12 @@ func (d *driver) Leave(nid, eid string) error {
 	}
 
 	// Ensure that the endpoint exists
-	_, err = network.getEndpoint(eid)
+	ep, err = network.getEndpoint(eid)
+	if err != nil {
+		return err
+	}
+
+	err = hcsshim.DetachComputeSystemEndpoint(ep.sbox, ep.profileID)
 	if err != nil {
 		return err
 	}
@@ -558,6 +573,14 @@ func (d *driver) ProgramExternalConnectivity(nid, eid string, options map[string
 
 func (d *driver) RevokeExternalConnectivity(nid, eid string) error {
 	return nil
+}
+
+func (d *driver) NetworkAllocate(id string, option map[string]string, ipV4Data, ipV6Data []driverapi.IPAMData) (map[string]string, error) {
+	return nil, types.NotImplementedErrorf("not implemented")
+}
+
+func (d *driver) NetworkFree(id string) error {
+	return types.NotImplementedErrorf("not implemented")
 }
 
 func (d *driver) Type() string {
