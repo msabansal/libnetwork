@@ -15,4 +15,7 @@ const (
 
 	// QosPolicies of the endpoint
 	QosPolicies = "com.docker.endpoint.windowsshim.qospolicies"
+
+	// VLAN of the network
+	VLAN = "com.docker.network.windowsshim.vlanid"
 )

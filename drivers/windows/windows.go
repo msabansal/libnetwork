@@ -15,6 +15,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net"
+	"strconv"
 	"strings"
 	"sync"
 
@@ -34,6 +35,7 @@ type networkConfiguration struct {
 	Name               string
 	HnsID              string
 	RDID               string
+	VLAN               uint
 	NetworkAdapterName string
 }
 
@@ -129,6 +131,11 @@ func (d *driver) parseNetworkOptions(id string, genericOptions map[string]string
 			config.RDID = value
 		case Interface:
 			config.NetworkAdapterName = value
+		case VLAN:
+			config.VLAN, err = strconv.ParseUint(value, 10, 32)
+			if err != nil {
+				return nil, err
+			}
 		}
 	}
 
@@ -149,8 +156,11 @@ func (c *networkConfiguration) processIPAM(id string, ipamV4Data, ipamV6Data []d
 	return nil
 }
 
+func (d *driver) EventNotify(etype driverapi.EventType, nid, tableName, key string, value []byte) {
+}
+
 // Create a new network
-func (d *driver) CreateNetwork(id string, option map[string]interface{}, ipV4Data, ipV6Data []driverapi.IPAMData) error {
+func (d *driver) CreateNetwork(id string, option map[string]interface{}, nInfo driverapi.NetworkInfo, ipV4Data, ipV6Data []driverapi.IPAMData) error {
 	if _, err := d.getNetwork(id); err == nil {
 		return types.ForbiddenErrorf("network %s exists", id)
 	}
@@ -205,6 +215,17 @@ func (d *driver) CreateNetwork(id string, option map[string]interface{}, ipV4Dat
 			Type:               d.name,
 			Subnets:            subnets,
 			NetworkAdapterName: config.NetworkAdapterName,
+		}
+
+		log.Debugf("VLAN =%v", config.VLAN)
+		if config.VLAN != 0 {
+			vlanPolicy := json.Marshal(hcsshim.VlanPolicy{
+				Type: "VLAN",
+				VLAN: config.VLAN,
+			})
+
+			log.Debugf("Adding policy=%v", vlanPolicy)
+			network.Policies = append(network.Policies, vlanPolicy)
 		}
 
 		if network.Name == "" {
@@ -414,6 +435,10 @@ func (d *driver) CreateEndpoint(nid, eid string, ifInfo driverapi.InterfaceInfo,
 	}
 	endpointStruct.Policies = append(endpointStruct.Policies, qosPolicies...)
 
+	if ifInfo.Address() != nil {
+		endpointStruct.IPAddress = ifInfo.Address().IP
+	}
+
 	configurationb, err := json.Marshal(endpointStruct)
 	if err != nil {
 		return err
@@ -449,8 +474,13 @@ func (d *driver) CreateEndpoint(nid, eid string, ifInfo driverapi.InterfaceInfo,
 	n.endpoints[eid] = endpoint
 	n.Unlock()
 
-	ifInfo.SetIPAddress(endpoint.addr)
-	ifInfo.SetMacAddress(endpoint.macAddress)
+	if ifInfo.Address() == nil {
+		ifInfo.SetIPAddress(endpoint.addr)
+	}
+
+	if macAddress == nil {
+		ifInfo.SetMacAddress(endpoint.macAddress)
+	}
 
 	return nil
 }
@@ -558,6 +588,14 @@ func (d *driver) ProgramExternalConnectivity(nid, eid string, options map[string
 
 func (d *driver) RevokeExternalConnectivity(nid, eid string) error {
 	return nil
+}
+
+func (d *driver) NetworkAllocate(id string, option map[string]string, ipV4Data, ipV6Data []driverapi.IPAMData) (map[string]string, error) {
+	return nil, types.NotImplementedErrorf("not implemented")
+}
+
+func (d *driver) NetworkFree(id string) error {
+	return types.NotImplementedErrorf("not implemented")
 }
 
 func (d *driver) Type() string {
