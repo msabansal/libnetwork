@@ -23,7 +23,7 @@ type Resolver interface {
 	Stop()
 	// SetupFunc() provides the setup function that should be run
 	// in the container's network namespace.
-	SetupFunc() func()
+	SetupFunc(string, int) func()
 	// NameServer() returns the IP of the DNS resolver for the
 	// containers.
 	NameServer() string
@@ -35,7 +35,6 @@ type Resolver interface {
 }
 
 const (
-	resolverIP      = "127.0.0.11"
 	dnsPort         = "53"
 	ptrIPv4domain   = ".in-addr.arpa."
 	ptrIPv6domain   = ".ip6.arpa."
@@ -53,16 +52,18 @@ type extDNSEntry struct {
 
 // resolver implements the Resolver interface
 type resolver struct {
-	sb         *sandbox
-	extDNSList [maxExtDNS]extDNSEntry
-	server     *dns.Server
-	conn       *net.UDPConn
-	tcpServer  *dns.Server
-	tcpListen  *net.TCPListener
-	err        error
-	count      int32
-	tStamp     time.Time
-	queryLock  sync.Mutex
+	sb            *sandbox
+	network       *network
+	extDNSList    [maxExtDNS]extDNSEntry
+	server        *dns.Server
+	conn          *net.UDPConn
+	tcpServer     *dns.Server
+	tcpListen     *net.TCPListener
+	err           error
+	count         int32
+	tStamp        time.Time
+	queryLock     sync.Mutex
+	listenAddress string
 }
 
 func init() {
@@ -70,20 +71,22 @@ func init() {
 }
 
 // NewResolver creates a new instance of the Resolver
-func NewResolver(sb *sandbox) Resolver {
+func NewResolver(sb *sandbox, nt *network) Resolver {
 	return &resolver{
-		sb:  sb,
-		err: fmt.Errorf("setup not done yet"),
+		sb:      sb,
+		network: nt,
+		err:     fmt.Errorf("setup not done yet"),
 	}
 }
 
-func (r *resolver) SetupFunc() func() {
+func (r *resolver) SetupFunc(resolverIP string, port int) func() {
 	return (func() {
 		var err error
 
 		// DNS operates primarily on UDP
 		addr := &net.UDPAddr{
-			IP: net.ParseIP(resolverIP),
+			IP:   net.ParseIP(resolverIP),
+			Port: port,
 		}
 
 		r.conn, err = net.ListenUDP("udp", addr)
@@ -94,7 +97,8 @@ func (r *resolver) SetupFunc() func() {
 
 		// Listen on a TCP as well
 		tcpaddr := &net.TCPAddr{
-			IP: net.ParseIP(resolverIP),
+			IP:   net.ParseIP(resolverIP),
+			Port: port,
 		}
 
 		r.tcpListen, err = net.ListenTCP("tcp", tcpaddr)
@@ -103,6 +107,7 @@ func (r *resolver) SetupFunc() func() {
 			return
 		}
 		r.err = nil
+		r.listenAddress = resolverIP
 	})
 }
 
@@ -156,7 +161,7 @@ func (r *resolver) SetExtServers(dns []string) {
 }
 
 func (r *resolver) NameServer() string {
-	return resolverIP
+	return r.listenAddress
 }
 
 func (r *resolver) ResolverOptions() []string {
@@ -184,7 +189,15 @@ func createRespMsg(query *dns.Msg) *dns.Msg {
 }
 
 func (r *resolver) handleIPQuery(name string, query *dns.Msg, ipType int) (*dns.Msg, error) {
-	addr, ipv6Miss := r.sb.ResolveName(name, ipType)
+	var addr []net.IP
+	var ipv6Miss bool
+	if r.sb != nil {
+		addr, ipv6Miss = r.sb.ResolveName(name, ipType)
+	} else if r.network != nil {
+		log.Debugf("Name to resolve on network(%s) %v", r.network.name, name)
+		addr, ipv6Miss = r.network.ResolveName(name, ipType)
+	}
+
 	if addr == nil && ipv6Miss {
 		// Send a reply without any Answer sections
 		log.Debugf("Lookup name %s present without IPv6 address", name)
@@ -230,7 +243,13 @@ func (r *resolver) handlePTRQuery(ptr string, query *dns.Msg) (*dns.Msg, error) 
 		return nil, fmt.Errorf("invalid PTR query, %v", ptr)
 	}
 
-	host := r.sb.ResolveIP(parts[0])
+	var host string
+	if r.sb != nil {
+		host = r.sb.ResolveIP(parts[0])
+	} else if r.network != nil {
+		host = r.network.ResolveIP(parts[0])
+	}
+
 	if len(host) == 0 {
 		return nil, nil
 	}
@@ -250,11 +269,32 @@ func (r *resolver) handlePTRQuery(ptr string, query *dns.Msg) (*dns.Msg, error) 
 }
 
 func (r *resolver) handleSRVQuery(svc string, query *dns.Msg) (*dns.Msg, error) {
-	srv, ip, err := r.sb.ResolveService(svc)
+	parts := strings.Split(svc, ".")
+	if len(parts) < 3 {
+		return nil, fmt.Errorf("invalid service name, %s", svc)
+	}
+	portName := parts[0]
+	proto := parts[1]
+	if proto != "_tcp" && proto != "_udp" {
+		return nil, fmt.Errorf("invalid protocol in service, %s", svc)
+	}
+
+	svcName := strings.Join(parts[2:], ".")
+
+	var srv []*net.SRV
+	var ip []net.IP
+	var err error
+
+	if r.sb != nil {
+		srv, ip, err = r.sb.ResolveService(portName, proto, svcName)
+	} else if r.network != nil {
+		srv, ip = r.network.ResolveService(portName, proto, svcName)
+	}
 
 	if err != nil {
 		return nil, err
 	}
+
 	if len(srv) != len(ip) {
 		return nil, fmt.Errorf("invalid reply for SRV query %s", svc)
 	}
@@ -319,6 +359,13 @@ func (r *resolver) ServeDNS(w dns.ResponseWriter, query *dns.Msg) {
 
 	if err != nil {
 		log.Error(err)
+		return
+	}
+
+	if r.network != nil && resp == nil {
+		resp = new(dns.Msg)
+		resp.SetRcode(query, dns.RcodeServerFailure)
+		w.WriteMsg(resp)
 		return
 	}
 

@@ -184,6 +184,8 @@ type network struct {
 	persist      bool
 	stopWatchCh  chan struct{}
 	drvOnce      *sync.Once
+	resolverOnce sync.Once
+	resolver     Resolver
 	internal     bool
 	inDelete     bool
 	ingress      bool
@@ -796,6 +798,10 @@ func (n *network) deleteNetwork() error {
 		}
 	}
 
+	if n.resolver != nil {
+		n.resolver.Stop()
+	}
+
 	return nil
 }
 
@@ -977,6 +983,7 @@ func (n *network) EndpointByID(id string) (Endpoint, error) {
 }
 
 func (n *network) updateSvcRecord(ep *endpoint, localEps []*endpoint, isAdd bool) {
+	log.Debugf("==================updateSvcRecord================== %v %v %v", ep, ep.Iface(), isAdd)
 	var ipv6 net.IP
 	epName := ep.Name()
 	if iface := ep.Iface(); iface.Address() != nil {
@@ -1520,4 +1527,88 @@ func (n *network) TableEventRegister(tableName string) error {
 // Special drivers are ones which do not need to perform any network plumbing
 func (n *network) hasSpecialDriver() bool {
 	return n.Type() == "host" || n.Type() == "null"
+}
+
+func (n *network) ResolveName(req string, ipType int) ([]net.IP, bool) {
+	var ipv6Miss bool
+	sr, ok := n.getController().svcRecords[n.ID()]
+	if !ok {
+		return nil, false
+	}
+
+	req = strings.TrimSuffix(req, ".")
+	var ip []net.IP
+	n.Lock()
+	ip, ok = sr.svcMap[req]
+
+	if ipType == types.IPv6 {
+		// If the name resolved to v4 address then its a valid name in
+		// the docker network domain. If the network is not v6 enabled
+		// set ipv6Miss to filter the DNS query from going to external
+		// resolvers.
+		if ok && n.enableIPv6 == false {
+			ipv6Miss = true
+		}
+		ip = sr.svcIPv6Map[req]
+	}
+	n.Unlock()
+
+	if ip != nil {
+		return ip, false
+	}
+
+	return nil, ipv6Miss
+}
+
+func (n *network) ResolveIP(ip string) string {
+	var svc string
+
+	sr, ok := n.getController().svcRecords[n.ID()]
+	if !ok {
+		return svc
+	}
+
+	nwName := n.Name()
+	n.Lock()
+	svc, ok = sr.ipMap[ip]
+	n.Unlock()
+	if ok {
+		return svc + "." + nwName
+	}
+
+	return svc
+}
+
+func (n *network) ResolveService(portName, proto, svcName string) ([]*net.SRV, []net.IP) {
+	srv := []*net.SRV{}
+	ip := []net.IP{}
+
+	sr, ok := n.getController().svcRecords[n.ID()]
+	if !ok {
+		return nil, nil
+	}
+
+	svcs, ok := sr.service[svcName]
+	if !ok {
+		return nil, nil
+	}
+
+	for _, svc := range svcs {
+		if svc.portName != portName {
+			continue
+		}
+		if svc.proto != proto {
+			continue
+		}
+		for _, t := range svc.target {
+			srv = append(srv,
+				&net.SRV{
+					Target: t.name,
+					Port:   t.port,
+				})
+
+			ip = append(ip, t.ip)
+		}
+	}
+	return srv, ip
 }
