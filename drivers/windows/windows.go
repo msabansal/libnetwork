@@ -39,10 +39,12 @@ type networkConfiguration struct {
 
 // endpointConfiguration represents the user specified configuration for the sandbox endpoint
 type endpointConfiguration struct {
-	MacAddress   net.HardwareAddr
-	PortBindings []types.PortBinding
-	ExposedPorts []types.TransportPort
-	QosPolicies  []types.QosPolicy
+	MacAddress    net.HardwareAddr
+	PortBindings  []types.PortBinding
+	ExposedPorts  []types.TransportPort
+	QosPolicies   []types.QosPolicy
+	DNSServers    []string
+	DNSSearchList []string
 }
 
 type hnsEndpoint struct {
@@ -69,7 +71,7 @@ type driver struct {
 }
 
 func isValidNetworkType(networkType string) bool {
-	if "l2bridge" == networkType || "l2tunnel" == networkType || "nat" == networkType || "transparent" == networkType {
+	if "l2bridge" == networkType || "l2tunnel" == networkType || "nat" == networkType || "ics" == networkType || "transparent" == networkType {
 		return true
 	}
 
@@ -341,6 +343,7 @@ func parsePortBindingPolicies(policies []json.RawMessage) ([]types.PortBinding, 
 }
 
 func parseEndpointOptions(epOptions map[string]interface{}) (*endpointConfiguration, error) {
+	log.Debugf("Epoptions=%v", epOptions)
 	if epOptions == nil {
 		return nil, nil
 	}
@@ -374,6 +377,22 @@ func parseEndpointOptions(epOptions map[string]interface{}) (*endpointConfigurat
 	if opt, ok := epOptions[QosPolicies]; ok {
 		if policies, ok := opt.([]types.QosPolicy); ok {
 			ec.QosPolicies = policies
+		} else {
+			return nil, fmt.Errorf("Invalid endpoint configuration")
+		}
+	}
+
+	if opt, ok := epOptions[netlabel.DnsSearchList]; ok {
+		if dns, ok := opt.([]string); ok {
+			ec.DNSSearchList = dns
+		} else {
+			return nil, fmt.Errorf("Invalid endpoint configuration")
+		}
+	}
+
+	if opt, ok := epOptions[netlabel.DnsServers]; ok {
+		if dns, ok := opt.([]string); ok {
+			ec.DNSServers = dns
 		} else {
 			return nil, fmt.Errorf("Invalid endpoint configuration")
 		}
@@ -421,6 +440,14 @@ func (d *driver) CreateEndpoint(nid, eid string, ifInfo driverapi.InterfaceInfo,
 		endpointStruct.IPAddress = ifInfo.Address().IP
 	}
 
+	endpointStruct.DNSSearchList = strings.Join(ec.DNSSearchList, ",")
+	endpointStruct.DNSServerList = strings.Join(ec.DNSServers, ",")
+
+	if n.driver.name == "nat" {
+		endpointStruct.EnableInternalDns = true
+	}
+
+	log.Debugf("endpointStruct=%v", endpointStruct)
 	configurationb, err := json.Marshal(endpointStruct)
 	if err != nil {
 		return err
@@ -502,6 +529,10 @@ func (d *driver) EndpointOperInfo(nid, eid string) (map[string]interface{}, erro
 	}
 
 	data := make(map[string]interface{}, 1)
+	if network.driver.name == "nat" {
+		data["AllowUnqualifiedDNSQuery"] = true
+	}
+
 	data["hnsid"] = ep.profileID
 	if ep.config.ExposedPorts != nil {
 		// Return a copy of the config data

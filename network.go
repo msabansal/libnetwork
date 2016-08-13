@@ -185,7 +185,7 @@ type network struct {
 	stopWatchCh  chan struct{}
 	drvOnce      *sync.Once
 	resolverOnce sync.Once
-	resolver     Resolver
+	resolver     []Resolver
 	internal     bool
 	inDelete     bool
 	ingress      bool
@@ -798,10 +798,9 @@ func (n *network) deleteNetwork() error {
 		}
 	}
 
-	if n.resolver != nil {
-		n.resolver.Stop()
+	for _, resolver := range n.resolver {
+		resolver.Stop()
 	}
-
 	return nil
 }
 

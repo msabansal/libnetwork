@@ -595,14 +595,6 @@ func (sb *sandbox) resolveName(req string, networkName string, epList []*endpoin
 			ep.Unlock()
 		}
 
-		c := n.getController()
-		c.Lock()
-		sr, ok := c.svcRecords[n.ID()]
-		c.Unlock()
-
-		if !ok {
-			continue
-		}
 		ip, miss := n.ResolveName(name, ipType)
 
 		if ip != nil {

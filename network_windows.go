@@ -36,19 +36,17 @@ func (n *network) startResolver() {
 			return
 		}
 
-		if hnsresponse.DnsServerAddress != "" {
-			n.resolver = NewResolver(nil, n)
-			defer func() {
-				if err != nil {
-					n.resolver = nil
+		for _, subnet := range hnsresponse.Subnets {
+			if subnet.GatewayAddress != "" {
+				resolver := NewResolver(nil, n)
+				log.Warnf("Binding a resolver on network %s gateway %s", n.Name(), subnet.GatewayAddress)
+				executeInCompartment(hnsresponse.DnsServerCompartment, resolver.SetupFunc(subnet.GatewayAddress, 53))
+				if err = resolver.Start(); err != nil {
+					log.Errorf("Resolver Setup/Start failed for container %s, %q", n.Name(), err)
+				} else {
+					n.resolver = append(n.resolver, resolver)
 				}
-			}()
-
-			executeInCompartment(hnsresponse.DnsServerCompartment, n.resolver.SetupFunc(hnsresponse.DnsServerAddress, 53))
-			if err = n.resolver.Start(); err != nil {
-				log.Errorf("Resolver Setup/Start failed for container %s, %q", n.Name(), err)
 			}
 		}
-
 	})
 }

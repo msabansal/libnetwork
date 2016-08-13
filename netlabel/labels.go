@@ -27,6 +27,12 @@ const (
 	// ExposedPorts constant represents the container's Exposed Ports
 	ExposedPorts = Prefix + ".endpoint.exposedports"
 
+	// DnsServers A list of DNS servers associated with the endpoint
+	DnsServers = Prefix + ".endpoint.dnsservers"
+
+	// DnsSearchList DNS search list associated with the endpoint
+	DnsSearchList = Prefix + ".endpoint.dnssearchlist"
+
 	//EnableIPv6 constant represents enabling IPV6 at network level
 	EnableIPv6 = Prefix + ".enable_ipv6"
 
