@@ -40,7 +40,7 @@ func (n *network) startResolver() {
 			if subnet.GatewayAddress != "" {
 				resolver := NewResolver(nil, n)
 				log.Warnf("Binding a resolver on network %s gateway %s", n.Name(), subnet.GatewayAddress)
-				executeInCompartment(hnsresponse.DnsServerCompartment, resolver.SetupFunc(subnet.GatewayAddress, 53))
+				executeInCompartment(hnsresponse.DNSServerCompartment, resolver.SetupFunc(subnet.GatewayAddress, 53))
 				if err = resolver.Start(); err != nil {
 					log.Errorf("Resolver Setup/Start failed for container %s, %q", n.Name(), err)
 				} else {

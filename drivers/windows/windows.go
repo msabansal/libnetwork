@@ -444,7 +444,7 @@ func (d *driver) CreateEndpoint(nid, eid string, ifInfo driverapi.InterfaceInfo,
 	endpointStruct.DNSServerList = strings.Join(ec.DNSServers, ",")
 
 	if n.driver.name == "nat" {
-		endpointStruct.EnableInternalDns = true
+		endpointStruct.EnableInternalDNS = true
 	}
 
 	log.Debugf("endpointStruct=%v", endpointStruct)
