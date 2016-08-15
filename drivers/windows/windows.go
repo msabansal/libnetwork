@@ -39,12 +39,11 @@ type networkConfiguration struct {
 
 // endpointConfiguration represents the user specified configuration for the sandbox endpoint
 type endpointConfiguration struct {
-	MacAddress    net.HardwareAddr
-	PortBindings  []types.PortBinding
-	ExposedPorts  []types.TransportPort
-	QosPolicies   []types.QosPolicy
-	DNSServers    []string
-	DNSSearchList []string
+	MacAddress   net.HardwareAddr
+	PortBindings []types.PortBinding
+	ExposedPorts []types.TransportPort
+	QosPolicies  []types.QosPolicy
+	DNSServers   []string
 }
 
 type hnsEndpoint struct {
@@ -382,14 +381,6 @@ func parseEndpointOptions(epOptions map[string]interface{}) (*endpointConfigurat
 		}
 	}
 
-	if opt, ok := epOptions[netlabel.DnsSearchList]; ok {
-		if dns, ok := opt.([]string); ok {
-			ec.DNSSearchList = dns
-		} else {
-			return nil, fmt.Errorf("Invalid endpoint configuration")
-		}
-	}
-
 	if opt, ok := epOptions[netlabel.DnsServers]; ok {
 		if dns, ok := opt.([]string); ok {
 			ec.DNSServers = dns
@@ -440,7 +431,6 @@ func (d *driver) CreateEndpoint(nid, eid string, ifInfo driverapi.InterfaceInfo,
 		endpointStruct.IPAddress = ifInfo.Address().IP
 	}
 
-	endpointStruct.DNSSearchList = strings.Join(ec.DNSSearchList, ",")
 	endpointStruct.DNSServerList = strings.Join(ec.DNSServers, ",")
 
 	if n.driver.name == "nat" {
