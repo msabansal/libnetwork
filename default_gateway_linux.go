@@ -7,6 +7,8 @@ import (
 	"github.com/docker/libnetwork/drivers/bridge"
 )
 
+const libnGWNetwork = "docker_gwbridge"
+
 func (c *controller) createGWNetwork() (Network, error) {
 	netOption := map[string]string{
 		bridge.BridgeName:         libnGWNetwork,

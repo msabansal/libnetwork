@@ -211,9 +211,13 @@ func (ep *endpoint) DriverInfo() (map[string]interface{}, error) {
 		return nil, err
 	}
 
+	var gwDriverInfo map[string]interface{}
 	if sb, ok := ep.getSandbox(); ok {
 		if gwep := sb.getEndpointInGWNetwork(); gwep != nil && gwep.ID() != ep.ID() {
-			return gwep.DriverInfo()
+			gwDriverInfo, err = gwep.DriverInfo()
+			if err != nil {
+				return nil, err
+			}
 		}
 	}
 
@@ -227,7 +231,17 @@ func (ep *endpoint) DriverInfo() (map[string]interface{}, error) {
 		return nil, fmt.Errorf("failed to get driver info: %v", err)
 	}
 
-	return driver.EndpointOperInfo(n.ID(), ep.ID())
+	epInfo, err := driver.EndpointOperInfo(n.ID(), ep.ID())
+	if err != nil {
+		return nil, err
+	}
+
+	if epInfo != nil {
+		epInfo["GW_INFO"] = gwDriverInfo
+		return epInfo, nil
+	}
+
+	return gwDriverInfo, nil
 }
 
 func (ep *endpoint) Iface() InterfaceInfo {

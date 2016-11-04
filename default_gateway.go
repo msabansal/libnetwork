@@ -7,8 +7,7 @@ import (
 )
 
 const (
-	libnGWNetwork = "docker_gwbridge"
-	gwEPlen       = 12
+	gwEPlen = 12
 )
 
 var procGwNetwork = make(chan (bool), 1)
