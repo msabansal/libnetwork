@@ -48,6 +48,8 @@ type endpointOption struct {
 	MacAddress  net.HardwareAddr
 	QosPolicies []types.QosPolicy
 	DNSServers  []string
+	DisableDNS  bool
+	DisableICC  bool
 }
 
 type endpointConnectivity struct {
@@ -427,6 +429,21 @@ func parseEndpointOptions(epOptions map[string]interface{}) (*endpointOption, er
 		}
 	}
 
+	if opt, ok := epOptions[DisableICC]; ok {
+		if disableICC, ok := opt.(bool); ok {
+			ec.DisableICC = disableICC
+		} else {
+			return nil, fmt.Errorf("Invalid endpoint configuration")
+		}
+	}
+
+	if opt, ok := epOptions[DisableDNS]; ok {
+		if disableDNS, ok := opt.(bool); ok {
+			ec.DisableDNS = disableDNS
+		} else {
+			return nil, fmt.Errorf("Invalid endpoint configuration")
+		}
+	}
 	return ec, nil
 }
 
@@ -497,9 +514,11 @@ func (d *driver) CreateEndpoint(nid, eid string, ifInfo driverapi.InterfaceInfo,
 
 	endpointStruct.DNSServerList = strings.Join(epOption.DNSServers, ",")
 
-	if n.driver.name == "nat" {
+	if n.driver.name == "nat" && !epOption.DisableDNS {
 		endpointStruct.EnableInternalDNS = true
 	}
+
+	endpointStruct.DisableICC = epOption.DisableICC
 
 	configurationb, err := json.Marshal(endpointStruct)
 	if err != nil {

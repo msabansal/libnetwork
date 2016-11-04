@@ -31,8 +31,8 @@ const (
 	// SourceMac of the network
 	SourceMac = "com.docker.network.windowsshim.sourcemac"
 
-	// EnableICC label
-	EnableICC = "com.docker.network.bridge.enable_icc"
+	// DisableICC label
+	DisableICC = "com.docker.network.windowsshim.disableicc"
 
 	// DisableDNS label
 	DisableDNS = "com.docker.network.windowsshim.disable_dns"
