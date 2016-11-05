@@ -214,6 +214,7 @@ func (ep *endpoint) DriverInfo() (map[string]interface{}, error) {
 	var gwDriverInfo map[string]interface{}
 	if sb, ok := ep.getSandbox(); ok {
 		if gwep := sb.getEndpointInGWNetwork(); gwep != nil && gwep.ID() != ep.ID() {
+
 			gwDriverInfo, err = gwep.DriverInfo()
 			if err != nil {
 				return nil, err

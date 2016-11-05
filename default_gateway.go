@@ -2,6 +2,7 @@ package libnetwork
 
 import (
 	"fmt"
+	"strings"
 
 	"github.com/docker/libnetwork/types"
 )
@@ -118,7 +119,7 @@ func (sb *sandbox) needDefaultGW() bool {
 
 func (sb *sandbox) getEndpointInGWNetwork() *endpoint {
 	for _, ep := range sb.getConnectedEndpoints() {
-		if ep.getNetwork().name == libnGWNetwork {
+		if ep.getNetwork().name == libnGWNetwork && strings.HasPrefix(ep.Name(), "gateway_") {
 			return ep
 		}
 	}
@@ -126,7 +127,7 @@ func (sb *sandbox) getEndpointInGWNetwork() *endpoint {
 }
 
 func (ep *endpoint) endpointInGWNetwork() bool {
-	if ep.getNetwork().name == libnGWNetwork {
+	if ep.getNetwork().name == libnGWNetwork && strings.HasPrefix(ep.Name(), "gateway_") {
 		return true
 	}
 	return false
