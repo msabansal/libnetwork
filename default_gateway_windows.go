@@ -17,8 +17,6 @@ func getPlatformOption() EndpointOption {
 	return EndpointOptionGeneric(epOption)
 }
 
-const libnGWNetwork = "nat"
-
 func (c *controller) createGWNetwork() (Network, error) {
 	return nil, types.NotImplementedErrorf("default gateway functionality is not implemented in windows")
 }
