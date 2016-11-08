@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/docker/libnetwork/netlabel"
 	"github.com/docker/libnetwork/types"
 )
 
@@ -50,6 +51,16 @@ func (sb *sandbox) setupDefaultGW() error {
 	eplen := gwEPlen
 	if len(sb.containerID) < gwEPlen {
 		eplen = len(sb.containerID)
+	}
+
+	sbLabels := sb.Labels()
+
+	if sbLabels[netlabel.PortMap] != nil {
+		createOptions = append(createOptions, CreateOptionPortMapping(sbLabels[netlabel.PortMap].([]types.PortBinding)))
+	}
+
+	if sbLabels[netlabel.ExposedPorts] != nil {
+		createOptions = append(createOptions, CreateOptionExposedPorts(sbLabels[netlabel.ExposedPorts].([]types.TransportPort)))
 	}
 
 	newEp, err := n.CreateEndpoint("gateway_"+sb.containerID[0:eplen], createOptions...)
