@@ -519,6 +519,8 @@ func (ep *endpoint) sbJoin(sb *sandbox, options ...EndpointOption) error {
 		return sb.setupDefaultGW()
 	}
 
+	log.Debugf("===> Should program connectivity %v %v (%d)", extEp, sb.getGatewayEndpoint(), n.internal)
+
 	moveExtConn := sb.getGatewayEndpoint() != extEp
 
 	if moveExtConn {
