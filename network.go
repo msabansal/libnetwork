@@ -1594,7 +1594,7 @@ func (n *network) hasSpecialDriver() bool {
 	return n.Type() == "host" || n.Type() == "null"
 }
 
-func (n *network) ResolveName(req string, ipType int) ([]net.IP, bool) {
+func (n *network) ResolveName(remoteAddr string, req string, ipType int) ([]net.IP, bool) {
 	var ipv6Miss bool
 
 	c := n.getController()
@@ -1604,6 +1604,22 @@ func (n *network) ResolveName(req string, ipType int) ([]net.IP, bool) {
 
 	if !ok {
 		return nil, false
+	}
+
+	if remoteAddr != "" {
+		logrus.Debugf("Searching for sandbox for remote address: %s", remoteAddr)
+		addr := strings.Split(remoteAddr, ":")[0]
+		for _, s := range c.Sandboxes() {
+			for _, e := range s.Endpoints() {
+
+				if e.Network() == n.name {
+					address := e.Info().Iface().Address()
+					if address != nil && address.IP.String() == addr {
+						logrus.Debugf("Found sandbox container : %s", s.ContainerID())
+					}
+				}
+			}
+		}
 	}
 
 	req = strings.TrimSuffix(req, ".")

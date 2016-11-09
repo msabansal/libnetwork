@@ -487,7 +487,7 @@ func getLocalNwEndpoints(epList []*endpoint) []*endpoint {
 	return eps
 }
 
-func (sb *sandbox) ResolveName(name string, ipType int) ([]net.IP, bool) {
+func (sb *sandbox) ResolveName(remoteAddr string, name string, ipType int) ([]net.IP, bool) {
 	// Embedded server owns the docker network domain. Resolution should work
 	// for both container_name and container_name.network_name
 	// We allow '.' in service name and network name. For a name a.b.c.d the
@@ -589,7 +589,7 @@ func (sb *sandbox) resolveName(req string, networkName string, epList []*endpoin
 			ep.Unlock()
 		}
 
-		ip, miss := n.ResolveName(name, ipType)
+		ip, miss := n.ResolveName("", name, ipType)
 
 		if ip != nil {
 			return ip, false

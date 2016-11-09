@@ -42,7 +42,7 @@ type DNSBackend interface {
 	// the networks the sandbox is connected to. For IPv6 queries, second return
 	// value will be true if the name exists in docker domain but doesn't have an
 	// IPv6 address. Such queries shouldn't be forwarded to external nameservers.
-	ResolveName(name string, iplen int) ([]net.IP, bool)
+	ResolveName(remoteAddr string, name string, iplen int) ([]net.IP, bool)
 	// ResolveIP returns the service name for the passed in IP. IP is in reverse dotted
 	// notation; the format used for DNS PTR records
 	ResolveIP(name string) string
@@ -212,10 +212,10 @@ func createRespMsg(query *dns.Msg) *dns.Msg {
 	return resp
 }
 
-func (r *resolver) handleIPQuery(name string, query *dns.Msg, ipType int) (*dns.Msg, error) {
+func (r *resolver) handleIPQuery(remoteAddr string, name string, query *dns.Msg, ipType int) (*dns.Msg, error) {
 	var addr []net.IP
 	var ipv6Miss bool
-	addr, ipv6Miss = r.backend.ResolveName(name, ipType)
+	addr, ipv6Miss = r.backend.ResolveName(remoteAddr, name, ipType)
 
 	if addr == nil && ipv6Miss {
 		// Send a reply without any Answer sections
@@ -251,7 +251,7 @@ func (r *resolver) handleIPQuery(name string, query *dns.Msg, ipType int) (*dns.
 	return resp, nil
 }
 
-func (r *resolver) handlePTRQuery(ptr string, query *dns.Msg) (*dns.Msg, error) {
+func (r *resolver) handlePTRQuery(remoteAddr string, ptr string, query *dns.Msg) (*dns.Msg, error) {
 	parts := []string{}
 
 	if strings.HasSuffix(ptr, ptrIPv4domain) {
@@ -282,7 +282,7 @@ func (r *resolver) handlePTRQuery(ptr string, query *dns.Msg) (*dns.Msg, error) 
 	return resp, nil
 }
 
-func (r *resolver) handleSRVQuery(svc string, query *dns.Msg) (*dns.Msg, error) {
+func (r *resolver) handleSRVQuery(remoteAddr string, svc string, query *dns.Msg) (*dns.Msg, error) {
 
 	srv, ip := r.backend.ResolveService(svc)
 
@@ -338,17 +338,18 @@ func (r *resolver) ServeDNS(w dns.ResponseWriter, query *dns.Msg) {
 	if query == nil || len(query.Question) == 0 {
 		return
 	}
+
 	name := query.Question[0].Name
 
 	switch query.Question[0].Qtype {
 	case dns.TypeA:
-		resp, err = r.handleIPQuery(name, query, types.IPv4)
+		resp, err = r.handleIPQuery(w.RemoteAddr().String(), name, query, types.IPv4)
 	case dns.TypeAAAA:
-		resp, err = r.handleIPQuery(name, query, types.IPv6)
+		resp, err = r.handleIPQuery(w.RemoteAddr().String(), name, query, types.IPv6)
 	case dns.TypePTR:
-		resp, err = r.handlePTRQuery(name, query)
+		resp, err = r.handlePTRQuery(w.RemoteAddr().String(), name, query)
 	case dns.TypeSRV:
-		resp, err = r.handleSRVQuery(name, query)
+		resp, err = r.handleSRVQuery(w.RemoteAddr().String(), name, query)
 	}
 
 	if err != nil {
