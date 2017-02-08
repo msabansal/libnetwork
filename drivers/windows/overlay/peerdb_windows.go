@@ -7,9 +7,9 @@ import (
 	"encoding/json"
 
 	"github.com/Sirupsen/logrus"
+	"github.com/docker/libnetwork/types"
 
 	"github.com/Microsoft/hcsshim"
-	"github.com/docker/libnetwork/types"
 )
 
 const ovPeerTable = "overlay_peer_table"
@@ -59,6 +59,7 @@ func (d *driver) peerAdd(nid, eid string, peerIP net.IP, peerIPMask net.IPMask,
 		logrus.Info("WINOVERLAY: peerAdd: notifying HNS of the REMOTE endpoint")
 
 		hnsEndpoint := &hcsshim.HNSEndpoint{
+			Name:             eid,
 			VirtualNetwork:   n.hnsId,
 			MacAddress:       peerMac.String(),
 			IPAddress:        peerIP,
@@ -109,10 +110,6 @@ func (d *driver) peerAdd(nid, eid string, peerIP net.IP, peerIPMask net.IPMask,
 		}
 
 		n.addEndpoint(ep)
-
-		if err := d.writeEndpointToStore(ep); err != nil {
-			return fmt.Errorf("failed to update overlay endpoint %s to local store: %v", ep.id[0:7], err)
-		}
 	}
 
 	return nil
@@ -144,10 +141,6 @@ func (d *driver) peerDelete(nid, eid string, peerIP net.IP, peerIPMask net.IPMas
 		}
 
 		n.deleteEndpoint(eid)
-
-		if err := d.deleteEndpointFromStore(ep); err != nil {
-			logrus.Debugf("Failed to delete stale overlay endpoint (%s) from store", ep.id[0:7])
-		}
 	}
 
 	return nil

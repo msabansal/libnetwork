@@ -3,6 +3,7 @@ package overlay
 //go:generate protoc -I.:../../Godeps/_workspace/src/github.com/gogo/protobuf  --gogo_out=import_path=github.com/docker/libnetwork/drivers/overlay,Mgogoproto/gogo.proto=github.com/gogo/protobuf/gogoproto:. overlay.proto
 
 import (
+	"encoding/json"
 	"fmt"
 	"net"
 	"sync"
@@ -12,7 +13,6 @@ import (
 	"github.com/docker/libnetwork/datastore"
 	"github.com/docker/libnetwork/discoverapi"
 	"github.com/docker/libnetwork/driverapi"
-	"github.com/docker/libnetwork/idm"
 	"github.com/docker/libnetwork/netlabel"
 	"github.com/docker/libnetwork/types"
 	"github.com/hashicorp/serf/serf"
@@ -22,14 +22,8 @@ const (
 	networkType  = "overlay"
 	vethPrefix   = "veth"
 	vethLen      = 7
-	vxlanIDStart = 4096
-	vxlanIDEnd   = (1 << 24) - 1
-	vxlanPort    = 4789
-	vxlanEncap   = 50
 	secureOption = "encrypted"
 )
-
-var initVxlanIdm = make(chan (bool), 1)
 
 type driver struct {
 	eventCh          chan serf.Event
@@ -43,7 +37,6 @@ type driver struct {
 	networks         networkTable
 	store            datastore.DataStore
 	localStore       datastore.DataStore
-	vxlanIdm         *idm.Idm
 	once             sync.Once
 	joinOnce         sync.Once
 	sync.Mutex
@@ -84,49 +77,118 @@ func Init(dc driverapi.DriverCallback, config map[string]interface{}) error {
 		}
 	}
 
-	d.restoreEndpoints()
+	d.restoreHNSNetworks()
 
 	return dc.RegisterDriver(networkType, d, c)
 }
 
-// Endpoints are stored in the local store. Restore them and reconstruct the overlay sandbox
-func (d *driver) restoreEndpoints() error {
-	if d.localStore == nil {
-		logrus.Warnf("Cannot restore overlay endpoints because local datastore is missing")
-		return nil
-	}
-	kvol, err := d.localStore.List(datastore.Key(overlayEndpointPrefix), &endpoint{})
-	if err != nil && err != datastore.ErrKeyNotFound {
-		return fmt.Errorf("failed to read overlay endpoint from store: %v", err)
+func (d *driver) restoreHNSNetworks() error {
+	logrus.Infof("Restoring existing overlay networks from HNS into docker")
+
+	hnsresponse, err := hcsshim.HNSListNetworkRequest("GET", "", "")
+	if err != nil {
+		return err
 	}
 
-	if err == datastore.ErrKeyNotFound {
-		return nil
-	}
-
-	for _, kvo := range kvol {
-		ep := kvo.(*endpoint)
-
-		n := d.network(ep.nid)
-		if n == nil || ep.remote {
-			if !ep.remote {
-				logrus.Debugf("Network (%s) not found for restored endpoint (%s)", ep.nid[0:7], ep.id[0:7])
-				logrus.Debugf("Deleting stale overlay endpoint (%s) from store", ep.id[0:7])
-			}
-
-			hcsshim.HNSEndpointRequest("DELETE", ep.profileId, "")
-
-			if err := d.deleteEndpointFromStore(ep); err != nil {
-				logrus.Debugf("Failed to delete stale overlay endpoint (%s) from store", ep.id[0:7])
-			}
-
+	for _, v := range hnsresponse {
+		if v.Type != networkType {
 			continue
 		}
 
-		n.addEndpoint(ep)
+		logrus.Infof("Restoring overlay network: %s", v.Name)
+		n := d.convertToOverlayNetwork(&v)
+		d.addNetwork(n)
+
+		n.restoreNetworkEndpoints()
 	}
 
 	return nil
+}
+
+func (d *driver) convertToOverlayNetwork(v *hcsshim.HNSNetwork) *network {
+	n := &network{
+		id:              v.Name,
+		hnsId:           v.Id,
+		driver:          d,
+		endpoints:       endpointTable{},
+		subnets:         []*subnet{},
+		providerAddress: v.ManagementIP,
+	}
+
+	for _, hnsSubnet := range v.Subnets {
+		vsidPolicy := &hcsshim.VsidPolicy{}
+		for _, policy := range hnsSubnet.Policies {
+			if err := json.Unmarshal([]byte(policy), &vsidPolicy); err == nil && vsidPolicy.Type == "VSID" {
+				break
+			}
+		}
+
+		gwIP := net.ParseIP(hnsSubnet.GatewayAddress)
+		localsubnet := &subnet{
+			vni:  uint32(vsidPolicy.VSID),
+			gwIP: &gwIP,
+		}
+
+		_, subnetIP, err := net.ParseCIDR(hnsSubnet.AddressPrefix)
+
+		if err != nil {
+			logrus.Errorf("Error parsing subnet address %s ", hnsSubnet.AddressPrefix)
+			continue
+		}
+
+		localsubnet.subnetIP = subnetIP
+
+		n.subnets = append(n.subnets, localsubnet)
+	}
+
+	return n
+}
+
+func (n *network) restoreNetworkEndpoints() error {
+	logrus.Infof("Restoring endpoints for overlay network: %s", n.id)
+
+	hnsresponse, err := hcsshim.HNSListEndpointRequest("GET", "", "")
+	if err != nil {
+		return err
+	}
+
+	for _, endpoint := range hnsresponse {
+		if endpoint.VirtualNetwork != n.hnsId {
+			continue
+		}
+
+		ep := n.convertToOverlayEndpoint(&endpoint)
+
+		if ep != nil {
+			logrus.Debugf("Restored endpoint:%s Remote:%t", ep.id, ep.remote)
+			n.addEndpoint(ep)
+		}
+	}
+
+	return nil
+}
+
+func (n *network) convertToOverlayEndpoint(v *hcsshim.HNSEndpoint) *endpoint {
+	ep := &endpoint{
+		id:        v.Name,
+		profileId: v.Id,
+		nid:       n.id,
+		remote:    v.IsRemoteEndpoint,
+	}
+
+	mac, err := net.ParseMAC(v.MacAddress)
+
+	if err != nil {
+		return nil
+	}
+
+	ep.mac = mac
+	ep.addr = &net.IPNet{
+		IP:   v.IPAddress,
+		Mask: net.CIDRMask(32, 32),
+	}
+
+	return ep
 }
 
 // Fini cleans up the driver resources
@@ -145,28 +207,6 @@ func Fini(drv driverapi.Driver) {
 func (d *driver) configure() error {
 	if d.store == nil {
 		return nil
-	}
-
-	if d.vxlanIdm == nil {
-		return d.initializeVxlanIdm()
-	}
-
-	return nil
-}
-
-func (d *driver) initializeVxlanIdm() error {
-	var err error
-
-	initVxlanIdm <- true
-	defer func() { <-initVxlanIdm }()
-
-	if d.vxlanIdm != nil {
-		return nil
-	}
-
-	d.vxlanIdm, err = idm.New(d.store, "vxlan-id", vxlanIDStart, vxlanIDEnd)
-	if err != nil {
-		return fmt.Errorf("failed to initialize vxlan id manager: %v", err)
 	}
 
 	return nil

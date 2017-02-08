@@ -25,9 +25,8 @@ type networkTable map[string]*network
 
 type subnet struct {
 	vni      uint32
-	initErr  error
 	subnetIP *net.IPNet
-	gwIP     *net.IPNet
+	gwIP     *net.IP
 }
 
 type subnetJSON struct {
@@ -65,6 +64,7 @@ func (d *driver) CreateNetwork(id string, option map[string]interface{}, nInfo d
 	var (
 		networkName   string
 		interfaceName string
+		staleNetworks []string
 	)
 
 	if id == "" {
@@ -75,12 +75,22 @@ func (d *driver) CreateNetwork(id string, option map[string]interface{}, nInfo d
 		return types.BadRequestErrorf("ipv4 pool is empty")
 	}
 
+	staleNetworks = make([]string, 0)
 	vnis := make([]uint32, 0, len(ipV4Data))
 
 	// Since we perform lazy configuration make sure we try
 	// configuring the driver when we enter CreateNetwork
 	if err := d.configure(); err != nil {
 		return err
+	}
+
+	existingNetwork := d.network(id)
+	if existingNetwork != nil {
+		logrus.Debugf("Network preexists. Deleting %s", id)
+		err := d.DeleteNetwork(id)
+		if err != nil {
+			logrus.Errorf("Error deleting stale network %s", err.Error())
+		}
 	}
 
 	n := &network{
@@ -119,21 +129,41 @@ func (d *driver) CreateNetwork(id string, option map[string]interface{}, nInfo d
 
 	// If we are getting vnis from libnetwork, either we get for
 	// all subnets or none.
-	if len(vnis) != 0 && len(vnis) < len(ipV4Data) {
-		return fmt.Errorf("insufficient vnis(%d) passed to overlay", len(vnis))
+	if len(vnis) < len(ipV4Data) {
+		return fmt.Errorf("insufficient vnis(%d) passed to overlay. Windows driver requires VNIs to be prepopulated", len(vnis))
 	}
 
 	for i, ipd := range ipV4Data {
 		s := &subnet{
 			subnetIP: ipd.Pool,
-			gwIP:     ipd.Gateway,
+			gwIP:     &ipd.Gateway.IP,
 		}
 
 		if len(vnis) != 0 {
 			s.vni = vnis[i]
 		}
 
+		d.Lock()
+		for _, network := range d.networks {
+			found := false
+			for _, sub := range network.subnets {
+				if sub.vni == s.vni {
+					staleNetworks = append(staleNetworks, network.id)
+					found = true
+					break
+				}
+			}
+			if found {
+				break
+			}
+		}
+		d.Unlock()
+
 		n.subnets = append(n.subnets, s)
+	}
+
+	for _, staleNetwork := range staleNetworks {
+		d.DeleteNetwork(staleNetwork)
 	}
 
 	n.name = networkName
@@ -143,10 +173,6 @@ func (d *driver) CreateNetwork(id string, option map[string]interface{}, nInfo d
 
 	n.interfaceName = interfaceName
 
-	if err := n.writeToStore(); err != nil {
-		return fmt.Errorf("failed to update data store for network %v: %v", n.id, err)
-	}
-
 	if nInfo != nil {
 		if err := nInfo.TableEventRegister(ovPeerTable); err != nil {
 			return err
@@ -155,8 +181,13 @@ func (d *driver) CreateNetwork(id string, option map[string]interface{}, nInfo d
 
 	d.addNetwork(n)
 
-	err := d.findHnsNetwork(n)
-	genData["com.docker.network.windowsshim.hnsid"] = n.hnsId
+	err := d.createHnsNetwork(n)
+
+	if err != nil {
+		d.deleteNetwork(id)
+	} else {
+		genData["com.docker.network.windowsshim.hnsid"] = n.hnsId
+	}
 
 	return err
 }
@@ -173,16 +204,15 @@ func (d *driver) DeleteNetwork(nid string) error {
 
 	n := d.network(nid)
 	if n == nil {
-		return fmt.Errorf("could not find network with id %s", nid)
+		return types.ForbiddenErrorf("could not find network with id %s", nid)
 	}
 
 	_, err := hcsshim.HNSNetworkRequest("DELETE", n.hnsId, "")
 	if err != nil {
-		return err
+		return types.ForbiddenErrorf(err.Error())
 	}
 
 	d.deleteNetwork(nid)
-	d.deleteLocalNetworkFromStore(n)
 
 	return nil
 }
@@ -236,7 +266,7 @@ func (d *driver) getNetworkFromStore(nid string) *network {
 	}
 
 	// As the network is being discovered from the global store, HNS may not be aware of it yet
-	err := d.findHnsNetwork(n)
+	err := d.createHnsNetwork(n)
 	if err != nil {
 		logrus.Errorf("Failed to find hns network: %v", err)
 		return nil
@@ -367,12 +397,12 @@ func (n *network) SetValue(value []byte) error {
 		vni := sj.Vni
 
 		subnetIP, _ := types.ParseCIDR(subnetIPstr)
-		gwIP, _ := types.ParseCIDR(gwIPstr)
+		gwIP := net.ParseIP(gwIPstr)
 
 		if newNet {
 			s := &subnet{
 				subnetIP: subnetIP,
-				gwIP:     gwIP,
+				gwIP:     &gwIP,
 				vni:      vni,
 			}
 			n.subnets = append(n.subnets, s)
@@ -396,72 +426,6 @@ func (n *network) writeToStore() error {
 	}
 
 	return n.driver.store.PutObjectAtomic(n)
-}
-
-func (n *network) releaseVxlanID() ([]uint32, error) {
-	if len(n.subnets) == 0 {
-		return nil, nil
-	}
-
-	if n.driver.store != nil {
-		if err := n.driver.store.DeleteObjectAtomic(n); err != nil {
-			if err == datastore.ErrKeyModified || err == datastore.ErrKeyNotFound {
-				// In both the above cases we can safely assume that the key has been removed by some other
-				// instance and so simply get out of here
-				return nil, nil
-			}
-
-			return nil, fmt.Errorf("failed to delete network to vxlan id map: %v", err)
-		}
-	}
-	var vnis []uint32
-	for _, s := range n.subnets {
-		if n.driver.vxlanIdm != nil {
-			vni := n.vxlanID(s)
-			vnis = append(vnis, vni)
-			n.driver.vxlanIdm.Release(uint64(vni))
-		}
-
-		n.setVxlanID(s, 0)
-	}
-
-	return vnis, nil
-}
-
-func (n *network) obtainVxlanID(s *subnet) error {
-	//return if the subnet already has a vxlan id assigned
-	if s.vni != 0 {
-		return nil
-	}
-
-	if n.driver.store == nil {
-		return fmt.Errorf("no valid vxlan id and no datastore configured, cannot obtain vxlan id")
-	}
-
-	for {
-		if err := n.driver.store.GetObject(datastore.Key(n.Key()...), n); err != nil {
-			return fmt.Errorf("getting network %q from datastore failed %v", n.id, err)
-		}
-
-		if s.vni == 0 {
-			vxlanID, err := n.driver.vxlanIdm.GetID()
-			if err != nil {
-				return fmt.Errorf("failed to allocate vxlan id: %v", err)
-			}
-
-			n.setVxlanID(s, uint32(vxlanID))
-			if err := n.writeToStore(); err != nil {
-				n.driver.vxlanIdm.Release(uint64(n.vxlanID(s)))
-				n.setVxlanID(s, 0)
-				if err == datastore.ErrKeyModified {
-					continue
-				}
-				return fmt.Errorf("network %q failed to update data store: %v", n.id, err)
-			}
-			return nil
-		}
-		return nil
-	}
 }
 
 // contains return true if the passed ip belongs to one the network's
