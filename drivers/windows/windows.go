@@ -146,7 +146,7 @@ func (n *hnsNetwork) getEndpoint(eid string) (*hnsEndpoint, error) {
 }
 
 func (d *driver) parseNetworkOptions(id string, genericOptions map[string]string) (*networkConfiguration, error) {
-	config := &networkConfiguration{}
+	config := &networkConfiguration{Type: d.name}
 
 	for label, value := range genericOptions {
 		switch label {

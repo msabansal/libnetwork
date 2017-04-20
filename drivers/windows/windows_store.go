@@ -47,7 +47,7 @@ func (d *driver) initStore(option map[string]interface{}) error {
 }
 
 func (d *driver) populateNetworks() error {
-	kvol, err := d.store.List(datastore.Key(windowsPrefix), &networkConfiguration{})
+	kvol, err := d.store.List(datastore.Key(windowsPrefix), &networkConfiguration{Type: d.name})
 	if err != nil && err != datastore.ErrKeyNotFound {
 		return fmt.Errorf("failed to get bridge network configurations from store: %v", err)
 	}
@@ -72,7 +72,7 @@ func (d *driver) populateNetworks() error {
 }
 
 func (d *driver) populateEndpoints() error {
-	kvol, err := d.store.List(datastore.Key(windowsEndpointPrefix), &hnsEndpoint{})
+	kvol, err := d.store.List(datastore.Key(windowsEndpointPrefix), &hnsEndpoint{Type: d.name})
 	if err != nil && err != datastore.ErrKeyNotFound {
 		return fmt.Errorf("failed to get bridge endpoints from store: %v", err)
 	}
@@ -176,11 +176,11 @@ func (ncfg *networkConfiguration) UnmarshalJSON(b []byte) error {
 }
 
 func (ncfg *networkConfiguration) Key() []string {
-	return []string{windowsPrefix, ncfg.ID}
+	return []string{windowsPrefix + ncfg.Type, ncfg.ID}
 }
 
 func (ncfg *networkConfiguration) KeyPrefix() []string {
-	return []string{windowsPrefix}
+	return []string{windowsPrefix + ncfg.Type}
 }
 
 func (ncfg *networkConfiguration) Value() []byte {
@@ -213,7 +213,7 @@ func (ncfg *networkConfiguration) Skip() bool {
 }
 
 func (ncfg *networkConfiguration) New() datastore.KVObject {
-	return &networkConfiguration{}
+	return &networkConfiguration{Type: ncfg.Type}
 }
 
 func (ncfg *networkConfiguration) CopyTo(o datastore.KVObject) error {
@@ -285,11 +285,11 @@ func (ep *hnsEndpoint) UnmarshalJSON(b []byte) error {
 }
 
 func (ep *hnsEndpoint) Key() []string {
-	return []string{windowsEndpointPrefix, ep.id}
+	return []string{windowsEndpointPrefix + ep.Type, ep.id}
 }
 
 func (ep *hnsEndpoint) KeyPrefix() []string {
-	return []string{windowsEndpointPrefix}
+	return []string{windowsEndpointPrefix + ep.Type}
 }
 
 func (ep *hnsEndpoint) Value() []byte {
@@ -322,7 +322,7 @@ func (ep *hnsEndpoint) Skip() bool {
 }
 
 func (ep *hnsEndpoint) New() datastore.KVObject {
-	return &hnsEndpoint{}
+	return &hnsEndpoint{Type: ep.Type}
 }
 
 func (ep *hnsEndpoint) CopyTo(o datastore.KVObject) error {
