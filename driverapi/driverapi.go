@@ -89,12 +89,29 @@ type Driver interface {
 	IsBuiltIn() bool
 }
 
+// IpamConf contains all the ipam related configurations for a network
+type IpamConf struct {
+	// The master address pool for containers and network interfaces
+	PreferredPool string
+	// A subset of the master pool. If specified,
+	// this becomes the container pool
+	SubPool string
+	// Preferred Network Gateway address (optional)
+	Gateway string
+	// Auxiliary addresses for network driver. Must be within the master pool.
+	// libnetwork will reserve them if they fall into the container pool
+	AuxAddresses map[string]string
+}
+
 // NetworkInfo provides a go interface for drivers to provide network
 // specific information to libnetwork.
 type NetworkInfo interface {
 	// TableEventRegister registers driver interest in a given
 	// table name.
 	TableEventRegister(tableName string, objType ObjectType) error
+
+	// IpamOverrideConfig allows the driver to configure and override ipam info
+	IpamOverrideConfig(ipVer int, cfgList []*IpamConf) error
 }
 
 // InterfaceInfo provides a go interface for drivers to retrive

@@ -1265,6 +1265,49 @@ func (n *network) ipamAllocate() error {
 	return nil
 }
 
+func (n *network) IpamOverrideConfig(ipVer int, ipamOverride []*driverapi.IpamConf) error {
+	var (
+		cfgList *[]*IpamConf
+		err     error
+	)
+
+	if n.hasSpecialDriver() {
+		return nil
+	}
+
+	ipam, _, err := n.getController().getIPAMDriver(n.ipamType)
+	if err != nil {
+		return err
+	}
+
+	n.ipamReleaseVersion(ipVer, ipam)
+
+	switch ipVer {
+	case 4:
+		cfgList = &n.ipamV4Config
+	case 6:
+		cfgList = &n.ipamV6Config
+	default:
+		return types.InternalErrorf("incorrect ip version passed to ipam allocate: %d", ipVer)
+	}
+
+	*cfgList = []*IpamConf{{}}
+
+	for _, cfg := range ipamOverride {
+		ipamV4Conf := IpamConf{}
+		ipamV4Conf.PreferredPool = cfg.PreferredPool
+		ipamV4Conf.Gateway = cfg.Gateway
+		*cfgList = append(*cfgList, &ipamV4Conf)
+	}
+
+	err = n.ipamAllocateVersion(ipVer, ipam)
+	if err != nil {
+		return err
+	}
+
+	return nil
+}
+
 func (n *network) requestPoolHelper(ipam ipamapi.Ipam, addressSpace, preferredPool, subPool string, options map[string]string, v6 bool) (string, *net.IPNet, map[string]string, error) {
 	for {
 		poolID, pool, meta, err := ipam.RequestPool(addressSpace, preferredPool, subPool, options, v6)
