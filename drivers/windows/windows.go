@@ -347,9 +347,9 @@ func (d *driver) CreateNetwork(id string, option map[string]interface{}, nInfo d
 			}
 		}
 		genData[HNSID] = config.HnsID
-
 	}
 
+	genData[Persistent] = "1"
 	return d.storeUpdate(config)
 }
 
@@ -364,10 +364,9 @@ func (d *driver) DeleteNetwork(nid string) error {
 	n.Unlock()
 
 	_, err = hcsshim.HNSNetworkRequest("DELETE", config.HnsID, "")
-	if err != nil {
+	if err != nil && err.Error() != "HNS failed with error : The object identifier does not represent a valid object. " {
 		return types.ForbiddenErrorf(err.Error())
 	}
-
 	d.Lock()
 	delete(d.networks, nid)
 	d.Unlock()
@@ -657,7 +656,7 @@ func (d *driver) DeleteEndpoint(nid, eid string) error {
 	n.Unlock()
 
 	_, err = hcsshim.HNSEndpointRequest("DELETE", ep.profileID, "")
-	if err != nil {
+	if err != nil && err.Error() != "HNS failed with error : The object identifier does not represent a valid object. " {
 		return err
 	}
 

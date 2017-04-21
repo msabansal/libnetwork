@@ -6,6 +6,8 @@ const (
 
 	// HNSID of the discovered network
 	HNSID = "com.docker.network.windowsshim.hnsid"
+	// Persistent if network was saved in store
+	Persistent = "com.docker.network.windowsshim.persistent"
 
 	// RoutingDomain of the network
 	RoutingDomain = "com.docker.network.windowsshim.routingdomain"
