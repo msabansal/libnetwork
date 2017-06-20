@@ -15,12 +15,13 @@ type endpointTable map[string]*endpoint
 const overlayEndpointPrefix = "overlay/endpoint"
 
 type endpoint struct {
-	id        string
-	nid       string
-	profileId string
-	remote    bool
-	mac       net.HardwareAddr
-	addr      *net.IPNet
+	id             string
+	nid            string
+	profileId      string
+	remote         bool
+	mac            net.HardwareAddr
+	addr           *net.IPNet
+	disablegateway bool
 }
 
 func validateID(nid, eid string) error {
@@ -140,6 +141,18 @@ func (d *driver) CreateEndpoint(nid, eid string, ifInfo driverapi.InterfaceInfo,
 	}
 
 	hnsEndpoint.Policies = append(hnsEndpoint.Policies, paPolicy)
+
+	natPolicy, err := json.Marshal(hcsshim.PaPolicy{
+		Type: "OutBoundNAT",
+		PA:   n.providerAddress,
+	})
+
+	if err != nil {
+		return err
+	}
+
+	hnsEndpoint.Policies = append(hnsEndpoint.Policies, natPolicy)
+	ep.disablegateway = true
 
 	configurationb, err := json.Marshal(hnsEndpoint)
 	if err != nil {
