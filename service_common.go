@@ -266,7 +266,7 @@ func (c *controller) addServiceBinding(svcName, svcID, nID, eID, containerName s
 	// Add loadbalancer service and backend in all sandboxes in
 	// the network only if vip is valid.
 	if len(vip) != 0 {
-		n.(*network).addLBBackend(ip, vip, lb.fwMark, ingressPorts)
+		n.(*network).addLBBackend(ip, vip, lb, ingressPorts)
 	}
 
 	// Add the appropriate name resolutions
