@@ -21,6 +21,7 @@ type endpoint struct {
 	remote         bool
 	mac            net.HardwareAddr
 	addr           *net.IPNet
+	gateway        *net.IP
 	disablegateway bool
 }
 
@@ -114,9 +115,12 @@ func (d *driver) CreateEndpoint(nid, eid string, ifInfo driverapi.InterfaceInfo,
 		return fmt.Errorf("create endpoint was not passed interface IP address")
 	}
 
-	if s := n.getSubnetforIP(ep.addr); s == nil {
+	var s *subnet
+	if s = n.getSubnetforIP(ep.addr); s == nil {
 		return fmt.Errorf("no matching subnet for IP %q in network %q\n", ep.addr, nid)
 	}
+
+	ep.gateway = s.gwIP
 
 	// Todo: Add port bindings and qos policies here
 
@@ -124,6 +128,7 @@ func (d *driver) CreateEndpoint(nid, eid string, ifInfo driverapi.InterfaceInfo,
 		Name:              eid,
 		VirtualNetwork:    n.hnsId,
 		IPAddress:         ep.addr.IP,
+		GatewayAddress:    ep.gateway.String(),
 		EnableInternalDNS: true,
 	}
 

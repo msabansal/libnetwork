@@ -130,6 +130,9 @@ func (n *network) addLBBackend(ip, vip net.IP, lb *loadBalancer, ingressPorts []
 		return false
 	})
 }
+func (n *network) rmLBBackend(ip, vip net.IP, lb *loadBalancer, ingressPorts []*PortConfig, rmService bool) {
+	n.rmLBBackend(ip, vip, lb.fwMark, ingressPorts, rmService)
+}
 
 // Remove loadbalancer backend from all sandboxes which has a
 // connection to this network. If needed remove the service entry as

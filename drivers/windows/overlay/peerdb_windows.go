@@ -82,6 +82,8 @@ func (d *driver) peerAdd(nid, eid string, peerIP net.IP, peerIPMask net.IPMask,
 			remote:    true,
 		}
 
+		logrus.Infof("Remote EP ip %s", ep.profileId)
+
 		n.addEndpoint(ep)
 	}
 

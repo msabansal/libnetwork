@@ -30,17 +30,26 @@ func (n *network) addLBBackend(ip, vip net.IP, lb *loadBalancer, ingressPorts []
 	var epList []string
 
 	for eid, _ := range lb.backEnds {
-		ep, err := n.EndpointByID(eid)
+		logrus.Debugf("Found ednpoint %s", eid)
+
+		driver, err := n.driver(true)
 		if err != nil {
+			logrus.Debugf("Error happend %v", err)
 			continue
 		}
-		data, err := ep.DriverInfo()
+
+		data, err := driver.EndpointOperInfo(n.ID(), eid)
+
 		if err != nil {
+			logrus.Debugf("Error happend %s", err)
 			continue
 		}
 
 		if data["hnsid"] != nil {
+			logrus.Debugf("Data hnsid %s", data["hnsid"])
 			epList = append(epList, data["hnsid"].(string))
+		} else {
+			logrus.Debugf("hnsid not found")
 		}
 	}
 
@@ -50,27 +59,67 @@ func (n *network) addLBBackend(ip, vip net.IP, lb *loadBalancer, ingressPorts []
 	}
 
 	var elbPolicies []hcsshim.ELBPolicy
+	var sourceVIP string
 
+	c := n.ctrlr
+
+	c.Lock()
+	sb, ok := c.sandboxes[n.id]
+	c.Unlock()
+	logrus.Debugf("Finding lb backend")
+	// If the load balancer sandbox is there
+	if ok {
+		logrus.Debugf("Found lb backend %v", sb)
+		for _, ep := range sb.getConnectedEndpoints() {
+			logrus.Debugf("Lb backend has connected ips")
+			if ep.getNetwork().ID() == n.id {
+				if ip := ep.getFirstInterfaceAddress(); ip != nil {
+					sourceVIP = ip.String()
+					logrus.Debugf("Lb backend found source VIP %s", sourceVIP)
+				}
+			}
+		}
+	}
 	for _, port := range ingressPorts {
 
 		elbPolicy := hcsshim.ELBPolicy{
-			VIPs: []string{vip.String()},
-			ILB:  true,
+			//VIPs:      []string{vip.String()},
+			SourceVIP: sourceVIP,
+			ILB:       false,
 		}
 
 		elbPolicy.Type = hcsshim.ExternalLoadBalancer
-		elbPolicy.InternalPort = uint16(port.PublishedPort)
-		elbPolicy.ExternalPort = uint16(port.TargetPort)
+		elbPolicy.InternalPort = uint16(port.TargetPort)
+		elbPolicy.ExternalPort = uint16(port.PublishedPort)
 
 		elbPolicies = append(elbPolicies, elbPolicy)
 	}
 
-	lb.policyList, _ = hcsshim.AddLoadBalancer(epList, true, vip.String(), elbPolicies)
+	elbPolicy := hcsshim.ELBPolicy{
+		VIPs:      []string{vip.String()},
+		SourceVIP: sourceVIP,
+		ILB:       true,
+	}
 
+	elbPolicy.Type = hcsshim.ExternalLoadBalancer
+	elbPolicies = append(elbPolicies, elbPolicy)
+
+	if len(elbPolicies) > 0 {
+		lb.policyList, _ = hcsshim.AddLoadBalancer(epList, true, vip.String(), elbPolicies)
+	}
 }
 
-func (n *network) rmLBBackend(ip, vip net.IP, fwMark uint32, ingressPorts []*PortConfig, rmService bool) {
+func (n *network) rmLBBackend(ip, vip net.IP, lb *loadBalancer, ingressPorts []*PortConfig, rmService bool) {
 	logrus.Debugf("Removing lb backend %v %v", ip, vip)
+
+	if rmService {
+		if lb.policyList != nil {
+			lb.policyList.Delete()
+			lb.policyList = nil
+		}
+	} else {
+		n.addLBBackend(ip, vip, lb, ingressPorts)
+	}
 }
 
 func (sb *sandbox) populateLoadbalancers(ep *endpoint) {

@@ -84,6 +84,7 @@ type sandbox struct {
 	isStub             bool
 	inDelete           bool
 	ingress            bool
+	lb                 bool
 	ndotsSet           bool
 	sync.Mutex
 	// This mutex is used to serialize service related operation for an endpoint
@@ -257,6 +258,7 @@ func (sb *sandbox) delete(force bool) error {
 	if sb.ingress {
 		c.ingressSandbox = nil
 	}
+
 	delete(c.sandboxes, sb.ID())
 	c.Unlock()
 
@@ -1140,6 +1142,14 @@ func OptionPortMapping(portBindings []types.PortBinding) SandboxOption {
 func OptionIngress() SandboxOption {
 	return func(sb *sandbox) {
 		sb.ingress = true
+	}
+}
+
+// OptionLB function returns an option setter for marking a
+// sandbox as the controller's load balancer sandbox.
+func OptionLB() SandboxOption {
+	return func(sb *sandbox) {
+		sb.lb = true
 	}
 }
 

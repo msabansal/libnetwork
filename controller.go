@@ -1071,6 +1071,14 @@ func (c *controller) NewSandbox(containerID string, options ...SandboxOption) (S
 		sb.config.resolvConfPath = filepath.Join(c.cfg.Daemon.DataDir, "/network/files/resolv.conf")
 		sb.id = "ingress_sbox"
 	}
+
+	if sb.lb {
+		//
+		// For a load balancer sandbox the container id is actually the network id
+		// and we use it as the id for the sandbox itself
+		//
+		sb.id = containerID
+	}
 	c.Unlock()
 
 	var err error

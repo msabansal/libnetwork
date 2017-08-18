@@ -310,6 +310,7 @@ func (d *driver) createHnsNetwork(n *network) error {
 		Name:               n.name,
 		Type:               d.Type(),
 		Subnets:            subnets,
+		AutomaticDNS:       true,
 		NetworkAdapterName: n.interfaceName,
 	}
 
