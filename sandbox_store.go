@@ -22,6 +22,7 @@ type epState struct {
 type sbState struct {
 	ID         string
 	Cid        string
+	sbKey      string
 	c          *controller
 	dbIndex    uint64
 	dbExists   bool
@@ -111,6 +112,7 @@ func (sbs *sbState) CopyTo(o datastore.KVObject) error {
 	dstSbs.c = sbs.c
 	dstSbs.ID = sbs.ID
 	dstSbs.Cid = sbs.Cid
+	dstSbs.sbKey = sbs.sbKey
 	dstSbs.dbIndex = sbs.dbIndex
 	dstSbs.dbExists = sbs.dbExists
 	dstSbs.EpPriority = sbs.EpPriority
@@ -143,6 +145,7 @@ func (sb *sandbox) storeUpdate() error {
 		Cid:        sb.containerID,
 		EpPriority: sb.epPriority,
 		ExtDNS2:    sb.extDNS,
+		sbKey:      sb.key,
 	}
 
 	for _, ext := range sb.extDNS {
@@ -183,6 +186,7 @@ func (sb *sandbox) storeDelete() error {
 		c:        sb.controller,
 		ID:       sb.id,
 		Cid:      sb.containerID,
+		sbKey:    sb.key,
 		dbIndex:  sb.dbIndex,
 		dbExists: sb.dbExists,
 	}
@@ -215,6 +219,7 @@ func (c *controller) sandboxCleanup(activeSandboxes map[string]interface{}) {
 			id:                 sbs.ID,
 			controller:         sbs.c,
 			containerID:        sbs.Cid,
+			key:                sbs.sbKey,
 			endpoints:          epHeap{},
 			populatedEndpoints: map[string]struct{}{},
 			dbIndex:            sbs.dbIndex,

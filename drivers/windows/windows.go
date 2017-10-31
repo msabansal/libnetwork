@@ -739,16 +739,22 @@ func (d *driver) Join(nid, eid string, sboxKey string, jinfo driverapi.JoinInfo,
 
 	endpoint.sandboxID = sboxKey
 
-	err = hcsshim.HotAttachEndpoint(endpoint.sandboxID, endpoint.profileID)
-	if err != nil {
-		// If container doesn't exists in hcs, do not throw error for hot add/remove
-		if err != hcsshim.ErrComputeSystemDoesNotExist {
-			return err
-		}
+	// err = hcsshim.HotAttachEndpoint(endpoint.sandboxID, endpoint.profileID)
+	// if err != nil {
+	// 	// If container doesn't exists in hcs, do not throw error for hot add/remove
+	// 	if err != hcsshim.ErrComputeSystemDoesNotExist {
+	// 		return err
+	// 	}
+	// }
+
+	compartment := &hcsshim.Compartment{
+		ID: sboxKey,
 	}
 
+	compartment, err = compartment.AddEndpoint(endpoint.profileID)
+
 	jinfo.DisableGatewayService()
-	return nil
+	return err
 }
 
 // Leave method is invoked when a Sandbox detaches from an endpoint.
@@ -764,14 +770,20 @@ func (d *driver) Leave(nid, eid string) error {
 		return err
 	}
 
-	err = hcsshim.HotDetachEndpoint(endpoint.sandboxID, endpoint.profileID)
-	if err != nil {
-		// If container doesn't exists in hcs, do not throw error for hot add/remove
-		if err != hcsshim.ErrComputeSystemDoesNotExist {
-			return err
-		}
+	// err = hcsshim.HotDetachEndpoint(endpoint.sandboxID, endpoint.profileID)
+	// if err != nil {
+	// 	// If container doesn't exists in hcs, do not throw error for hot add/remove
+	// 	if err != hcsshim.ErrComputeSystemDoesNotExist {
+	// 		return err
+	// 	}
+	// }
+
+	compartment := &hcsshim.Compartment{
+		ID: endpoint.sandboxID,
 	}
-	return nil
+
+	compartment, err = compartment.RemoveEndpoint(endpoint.profileID)
+	return err
 }
 
 func (d *driver) ProgramExternalConnectivity(nid, eid string, options map[string]interface{}) error {

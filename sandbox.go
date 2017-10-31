@@ -67,6 +67,7 @@ type epHeap []*endpoint
 
 type sandbox struct {
 	id                 string
+	key                string
 	containerID        string
 	config             containerConfig
 	extDNS             []extDNSEntry
@@ -145,10 +146,7 @@ func (sb *sandbox) ContainerID() string {
 }
 
 func (sb *sandbox) Key() string {
-	if sb.config.useDefaultSandBox {
-		return osl.GenerateKey("default")
-	}
-	return osl.GenerateKey(sb.id)
+	return sb.key
 }
 
 func (sb *sandbox) Labels() map[string]interface{} {
@@ -251,6 +249,10 @@ func (sb *sandbox) delete(force bool) error {
 
 	if err := sb.storeDelete(); err != nil {
 		logrus.Warnf("Failed to delete sandbox %s from store: %v", sb.ID(), err)
+	}
+
+	if err := sb.deleteKey(); err != nil {
+		logrus.Warnf("Failed to delete sandbox key %s : %v", sb.ID(), err)
 	}
 
 	c.Lock()

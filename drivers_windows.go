@@ -1,6 +1,7 @@
 package libnetwork
 
 import (
+	"github.com/docker/libnetwork/drivers/host"
 	"github.com/docker/libnetwork/drivers/null"
 	"github.com/docker/libnetwork/drivers/remote"
 	"github.com/docker/libnetwork/drivers/windows"
@@ -10,6 +11,7 @@ import (
 func getInitializers(experimental bool) []initializer {
 	return []initializer{
 		{null.Init, "null"},
+		{host.Init, "host"},
 		{overlay.Init, "overlay"},
 		{remote.Init, "remote"},
 		{windows.GetInit("transparent"), "transparent"},

@@ -1118,6 +1118,8 @@ func (c *controller) NewSandbox(containerID string, options ...SandboxOption) (S
 		}
 	}()
 
+	sb.createKey()
+
 	err = sb.storeUpdate()
 	if err != nil {
 		return nil, fmt.Errorf("failed to update the store state of sandbox: %v", err)
